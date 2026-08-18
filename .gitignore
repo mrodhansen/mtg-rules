@@ -4,4 +4,3 @@ frontend/dist/
 .env
 *.log
 .DS_Store
-mtg-rules.txt

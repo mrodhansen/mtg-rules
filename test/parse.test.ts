@@ -3,6 +3,11 @@ import { describe, it } from "node:test";
 import { defaultRulesPath, parseRulesFile, parseRulesText } from "../src/parse.js";
 import { Retriever } from "../src/retrieve.js";
 import { fixMojibake } from "../src/text.js";
+import type { Corpus } from "../src/types.js";
+
+function loadCorpus(): Corpus {
+  return parseRulesFile(defaultRulesPath());
+}
 
 describe("fixMojibake", () => {
   it("repairs CR curly quotes and registered mark", () => {
@@ -13,9 +18,8 @@ describe("fixMojibake", () => {
 });
 
 describe("parseRulesFile", () => {
-  const corpus = parseRulesFile(defaultRulesPath());
-
   it("parses a full CR with required rules", () => {
+    const corpus = loadCorpus();
     assert.ok(corpus.chunks.filter((c) => c.kind === "rule").length >= 2500);
     assert.ok(corpus.chunks.filter((c) => c.kind === "glossary").length >= 400);
     assert.ok(corpus.byId.has("100.1"));
@@ -24,7 +28,7 @@ describe("parseRulesFile", () => {
   });
 
   it("does not leave mojibake in 302.6", () => {
-    const rule = corpus.byId.get("302.6");
+    const rule = loadCorpus().byId.get("302.6");
     if (!rule) throw new Error("missing 302.6");
     assert.equal(rule.text.includes("â€™"), false);
     assert.match(rule.text, /summoning sickness/);
@@ -36,28 +40,26 @@ describe("parseRulesFile", () => {
 });
 
 describe("Retriever", () => {
-  const retriever = new Retriever(parseRulesFile(defaultRulesPath()));
-
   it("fetches 302.6 exactly", () => {
-    const rules = retriever.getRule("302.6");
+    const rules = new Retriever(loadCorpus()).getRule("302.6");
     assert.equal(rules[0]?.id, "302.6");
   });
 
   it("maps summoning sickness slang to 302.6", () => {
-    const ids = retriever.search("summoning sickness").map((h) => h.chunk.id);
+    const ids = new Retriever(loadCorpus()).search("summoning sickness").map((h) => h.chunk.id);
     assert.ok(ids.includes("302.6"));
   });
 
   it("rejects unknown glossary terms", () => {
-    assert.throws(() => retriever.getGlossary("not-a-real-term-xyz"), /not found/);
+    assert.throws(() => new Retriever(loadCorpus()).getGlossary("not-a-real-term-xyz"), /not found/);
   });
 
   it("rejects empty search", () => {
-    assert.throws(() => retriever.search("  "), /required/);
+    assert.throws(() => new Retriever(loadCorpus()).search("  "), /required/);
   });
 
   it("returns a single exact rule object", () => {
-    const rule = retriever.getExact("100.1");
+    const rule = new Retriever(loadCorpus()).getExact("100.1");
     assert.equal(rule.id, "100.1");
     assert.match(rule.text, /two or more players/);
   });
