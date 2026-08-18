@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import express from "express";
 import { z } from "zod";
 import { ask } from "./agent.js";
@@ -30,6 +32,8 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: "256kb" }));
 
+const api = express.Router();
+
 const AskBody = z.object({
   question: z.string().min(1),
   cards: z.array(z.string().min(1)).default([]),
@@ -48,7 +52,7 @@ function sendError(res: express.Response, err: unknown, status = 400): void {
   res.status(status).json({ error: message });
 }
 
-app.get("/health", (_req, res) => {
+api.get("/health", (_req, res) => {
   res.json({
     ok: true,
     effectiveDate: corpus.effectiveDate,
@@ -57,7 +61,7 @@ app.get("/health", (_req, res) => {
   });
 });
 
-app.post("/ask", async (req, res) => {
+api.post("/ask", async (req, res) => {
   const parsed = AskBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -80,7 +84,7 @@ app.post("/ask", async (req, res) => {
   }
 });
 
-app.get("/search", (req, res) => {
+api.get("/search", (req, res) => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q : "";
     const k = req.query.k === undefined ? 8 : Number(req.query.k);
@@ -101,7 +105,7 @@ app.get("/search", (req, res) => {
   }
 });
 
-app.get("/rules/:id", (req, res) => {
+api.get("/rules/:id", (req, res) => {
   try {
     const id = req.params.id;
     if (!id) throw new Error("Rule id is required");
@@ -112,7 +116,7 @@ app.get("/rules/:id", (req, res) => {
   }
 });
 
-app.get("/rule/:id", (req, res) => {
+api.get("/rule/:id", (req, res) => {
   try {
     const id = req.params.id;
     if (!id) throw new Error("Rule id is required");
@@ -123,7 +127,7 @@ app.get("/rule/:id", (req, res) => {
   }
 });
 
-app.get("/glossary/:term", (req, res) => {
+api.get("/glossary/:term", (req, res) => {
   try {
     const term = req.params.term;
     if (!term) throw new Error("Glossary term is required");
@@ -133,7 +137,7 @@ app.get("/glossary/:term", (req, res) => {
   }
 });
 
-app.get("/cards/autocomplete", async (req, res) => {
+api.get("/cards/autocomplete", async (req, res) => {
   try {
     const q = typeof req.query.q === "string" ? req.query.q : "";
     const names = await autocompleteCards(q);
@@ -143,7 +147,7 @@ app.get("/cards/autocomplete", async (req, res) => {
   }
 });
 
-app.get("/cards/scan", async (req, res) => {
+api.get("/cards/scan", async (req, res) => {
   try {
     const text = typeof req.query.text === "string" ? req.query.text : "";
     if (!text.trim()) throw new Error("text is required");
@@ -154,7 +158,7 @@ app.get("/cards/scan", async (req, res) => {
   }
 });
 
-app.get("/card", async (req, res) => {
+api.get("/card", async (req, res) => {
   try {
     const name = typeof req.query.name === "string" ? req.query.name : "";
     const card = await lookupCard(name);
@@ -164,7 +168,7 @@ app.get("/card", async (req, res) => {
   }
 });
 
-app.get("/card/rulings", async (req, res) => {
+api.get("/card/rulings", async (req, res) => {
   try {
     const name = typeof req.query.name === "string" ? req.query.name : "";
     const result = await lookupRulings(name);
@@ -173,6 +177,30 @@ app.get("/card/rulings", async (req, res) => {
     sendError(res, err);
   }
 });
+
+app.use("/api", api);
+app.get("/health", (_req, res) => {
+  res.redirect(308, "/api/health");
+});
+
+const frontendDir = process.env.FRONTEND_DIR;
+if (frontendDir) {
+  if (!existsSync(frontendDir)) {
+    throw new Error(`FRONTEND_DIR does not exist: ${frontendDir}`);
+  }
+  app.use(express.static(frontendDir));
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      next();
+      return;
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      next();
+      return;
+    }
+    res.sendFile(join(frontendDir, "index.html"));
+  });
+}
 
 const port = backendPort();
 app.listen(port, () => {

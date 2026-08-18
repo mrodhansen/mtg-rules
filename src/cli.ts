@@ -54,7 +54,7 @@ function takeFlag(args: string[], name: string): string[] {
 }
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
-  const url = `${backendUrl()}${path}`;
+  const url = `${backendUrl()}/api${path}`;
   let res: Response;
   try {
     res = await fetch(url, init);

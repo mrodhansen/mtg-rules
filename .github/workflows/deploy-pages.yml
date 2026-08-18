@@ -32,7 +32,7 @@ jobs:
       - name: Install & build
         working-directory: frontend
         env:
-          VITE_API_URL: https://mtg.mrodhansen.com
+          VITE_API_URL: https://mtg.mrodhansen.com/api
           VITE_BASE: /mtg-rules/
         run: |
           npm ci
