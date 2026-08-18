@@ -100,12 +100,20 @@ jobs:
       - name: Wait for health JSON
         run: |
           set -euo pipefail
+          hdr="$(mktemp)"
+          body="$(mktemp)"
           for i in $(seq 1 30); do
-            if body="$(curl -fsS --max-time 10 https://mtg.mrodhansen.com/api/health)"; then
-              echo "$body" | jq -e '.ok == true and (.effectiveDate | type == "string")'
+            if curl -sS -D "$hdr" -o "$body" --max-time 10 https://mtg.mrodhansen.com/api/health \
+              && grep -qi '^content-type:[[:space:]]*application/json' "$hdr" \
+              && jq -e '.ok == true and (.effectiveDate | type == "string")' "$body"; then
               exit 0
             fi
             sleep 2
           done
           echo "API did not return health JSON" >&2
+          echo "last headers:" >&2
+          cat "$hdr" >&2 || true
+          echo "last body:" >&2
+          head -c 400 "$body" >&2 || true
+          echo >&2
           exit 1
