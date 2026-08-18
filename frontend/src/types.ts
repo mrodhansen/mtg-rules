@@ -30,6 +30,13 @@ export interface RuleEntry {
   text: string;
 }
 
+export interface Health {
+  ok: true;
+  effectiveDate: string;
+  rules: number;
+  glossary: number;
+}
+
 export type Role = "user" | "assistant";
 
 export interface ChatMessage {

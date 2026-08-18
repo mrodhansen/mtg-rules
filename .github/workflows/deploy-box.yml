@@ -1,0 +1,111 @@
+name: Deploy API to box
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "frontend/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "mtg-rules.txt"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/deploy-box.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: box-mtg
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install, typecheck, test
+        run: |
+          npm ci
+          npm ci --prefix frontend
+          npm run typecheck
+          npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.BOX_SSH_KEY }}
+
+      - name: Trust box host key
+        env:
+          BOX_HOST: ${{ secrets.BOX_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$BOX_HOST" >> ~/.ssh/known_hosts
+
+      - name: Build image
+        run: docker build -t box-mtg:latest -t "box-mtg:${GITHUB_SHA}" .
+
+      - name: Sync source
+        env:
+          BOX_HOST: ${{ secrets.BOX_HOST }}
+          BOX_USER: ${{ secrets.BOX_USER }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -o IdentitiesOnly=yes" \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude '.env' \
+            --exclude 'node_modules/' \
+            --exclude 'frontend/node_modules/' \
+            --exclude 'dist/' \
+            --exclude 'frontend/dist/' \
+            --exclude 'test/' \
+            --exclude '*.log' \
+            ./ "${BOX_USER}@${BOX_HOST}:/opt/box/apps/mtg/"
+
+      - name: Load image and recreate container
+        env:
+          BOX_HOST: ${{ secrets.BOX_HOST }}
+          BOX_USER: ${{ secrets.BOX_USER }}
+        run: |
+          docker save box-mtg:latest | gzip -1 | ssh -o IdentitiesOnly=yes "${BOX_USER}@${BOX_HOST}" "gunzip | docker load"
+          ssh -o IdentitiesOnly=yes "${BOX_USER}@${BOX_HOST}" "set -euo pipefail
+            cd /opt/box
+            docker compose stop mtg
+            docker compose rm -f mtg
+            docker compose up -d --no-deps --no-build mtg
+            docker image prune -f
+          "
+
+      - name: Wait for health JSON
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if body="$(curl -fsS --max-time 10 https://mtg.mrodhansen.com/api/health)"; then
+              echo "$body" | jq -e '.ok == true and (.effectiveDate | type == "string")'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not return health JSON" >&2
+          exit 1

@@ -8,10 +8,12 @@ import {
   type ReactNode,
 } from "react";
 import Markdown from "react-markdown";
-import { ask, autocomplete, fetchCard, fetchRule, scan } from "./api.js";
+import { ask, autocomplete, fetchCard, fetchRule, scan, waitForApi } from "./api.js";
 import { indexCards, toMarkdown } from "./cards.js";
 import { activeMention, insertMention, mentionedNames, type Mention } from "./mention.js";
 import type { Card, ChatMessage } from "./types.js";
+
+type ApiGate = { kind: "starting" } | { kind: "ready" } | { kind: "error"; message: string };
 
 type Peek =
   | { kind: "card"; name: string; card: Card | null; missing: boolean; x: number; y: number }
@@ -42,7 +44,26 @@ export function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hoverableRef = useRef(false);
   const [sheet, setSheet] = useState(false);
+  const [apiGate, setApiGate] = useState<ApiGate>({ kind: "starting" });
   const known = useMemo(() => indexCards(cards), [cards]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void waitForApi()
+      .then(() => {
+        if (!cancelled) setApiGate({ kind: "ready" });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setApiGate({
+          kind: "error",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const hoverMq = window.matchMedia("(hover: hover) and (pointer: fine)");
@@ -70,7 +91,7 @@ export function App() {
   const mentionQuery = mention?.query ?? "";
 
   useEffect(() => {
-    if (mentionQuery.trim().length < 2) {
+    if (apiGate.kind !== "ready" || mentionQuery.trim().length < 2) {
       setSuggestions([]);
       return;
     }
@@ -83,7 +104,7 @@ export function App() {
         .catch(() => setSuggestions([]));
     }, 160);
     return () => window.clearTimeout(t);
-  }, [mentionQuery]);
+  }, [mentionQuery, apiGate.kind]);
 
   function mergeCards(next: Card[]): void {
     setCards((prev) => {
@@ -312,7 +333,7 @@ export function App() {
 
   async function send(): Promise<void> {
     const question = draft.trim();
-    if (!question || busy) return;
+    if (!question || busy || apiGate.kind !== "ready") return;
     setDraft("");
     setMention(null);
     setSuggestions([]);
@@ -336,6 +357,30 @@ export function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (apiGate.kind === "starting") {
+    return (
+      <div className="app">
+        <main className="thread">
+          <div className="empty">
+            <p>Starting server…</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (apiGate.kind === "error") {
+    return (
+      <div className="app">
+        <main className="thread">
+          <div className="empty">
+            <p className="err">{apiGate.message}</p>
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
