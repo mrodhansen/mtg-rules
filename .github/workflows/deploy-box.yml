@@ -71,7 +71,7 @@ jobs:
           BOX_USER: ${{ secrets.BOX_USER }}
         run: |
           rsync -az --delete \
-            -e "ssh -o IdentitiesOnly=yes" \
+            -e ssh \
             --exclude '.git/' \
             --exclude '.github/' \
             --exclude '.env' \
@@ -88,8 +88,8 @@ jobs:
           BOX_HOST: ${{ secrets.BOX_HOST }}
           BOX_USER: ${{ secrets.BOX_USER }}
         run: |
-          docker save box-mtg:latest | gzip -1 | ssh -o IdentitiesOnly=yes "${BOX_USER}@${BOX_HOST}" "gunzip | docker load"
-          ssh -o IdentitiesOnly=yes "${BOX_USER}@${BOX_HOST}" "set -euo pipefail
+          docker save box-mtg:latest | gzip -1 | ssh "${BOX_USER}@${BOX_HOST}" "gunzip | docker load"
+          ssh "${BOX_USER}@${BOX_HOST}" "set -euo pipefail
             cd /opt/box
             docker compose stop mtg
             docker compose rm -f mtg
